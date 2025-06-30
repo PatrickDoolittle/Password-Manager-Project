@@ -23,11 +23,11 @@ class PasswordManager:
         self.users_file = "users.txt"
         self.current_user = None
         self.enc_key = None
-        self.iterations = 310000  # PBKDF2 slow hashing iterations
+        self.iterations = 323455  # PBKDF2 slow hashing iterations
     
-    def derive_keys(self, password, salt):
-        derived = PBKDF2(password, salt, dkLen=64, count=self.iterations, hmac_hash_module=SHA256)
-        return derived[:32], derived[32:] # Half of key for verification, half for encryption
+    def derive_keys_with_iterations(self, password, salt, iterations):
+        derived = PBKDF2(password, salt, dkLen=64, count=iterations, hmac_hash_module=SHA256)
+        return derived[:32], derived[32:]
     
     def encrypt(self, plaintext, key):
         # AES-GCM encryption with 12-byte nonce
@@ -73,9 +73,9 @@ class PasswordManager:
         # Derive keys
         enc_key, verifier = self.derive_keys(password, salt)
         
-        # Store username, salt, and verifier in a pipe-delimited text file, encoded in hex
+        # Store username, salt, verifier, and iteration count
         with open(self.users_file, 'a') as f:
-            f.write(f"{username}|{salt.hex()}|{verifier.hex()}\n")
+            f.write(f"{username}|{salt.hex()}|{verifier.hex()}|{self.iterations}\n")
         # Create an empty file for this user's passwords
         open(f"{username}_passwords.txt", 'w').close()
         print("Registration successful!")
@@ -93,12 +93,14 @@ class PasswordManager:
         with open(self.users_file, 'r') as f:
             for line in f:
                 parts = line.strip().split("|")
-                if len(parts) == 3:
-                    stored_user, salt_hex, stored_verifier = parts
+                if len(parts) >= 4:  # Now expecting 4 parts
+                    stored_user, salt_hex, stored_verifier, stored_iterations = parts
+                    stored_iterations = int(stored_iterations)  # Convert string to int
+                    
                     if stored_user == username:
-                        # Derive keys from entered password
+                        # Use stored iterations for this user
                         salt = bytes.fromhex(salt_hex)
-                        enc_key, verifier = self.derive_keys(password, salt)
+                        enc_key, verifier = self.derive_keys_with_iterations(password, salt, stored_iterations)
                         
                         # Check if verifier matches
                         if verifier.hex() == stored_verifier:
@@ -131,6 +133,10 @@ class PasswordManager:
         # Display list of services with saved passwords
         file = f"{self.current_user}_passwords.txt"
         if not os.path.exists(file):
+            print("No passwords saved yet!")
+            return
+        
+        if os.path.getsize(file) == 0:
             print("No passwords saved yet!")
             return
         
@@ -225,7 +231,7 @@ class PasswordManager:
                     print("Goodbye!")
                     break
             else:
-                print(f"\n=== {self.current_user}'s Vault ===")
+                print(f"\n=== Menu ===")
                 print("1. Add password")
                 print("2. View password")
                 print("3. List passwords")
@@ -246,7 +252,10 @@ class PasswordManager:
                     self.current_user = None
                     self.enc_key = None
                     print("Logged out!")
+                else:
+                    print("Invalid choice! Please try again.")
 
 if __name__ == "__main__":
     pm = PasswordManager()
     pm.run()
+    
